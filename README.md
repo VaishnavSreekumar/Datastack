@@ -1,4 +1,4 @@
-# DataStack — Olist Data Engineering Platform
+# DataStack —  Data Engineering Platform
 
 [![CI Pipeline](https://img.shields.io/badge/CI-Automated%20Tests%20Passing-brightgreen.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
