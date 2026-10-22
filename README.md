@@ -191,6 +191,40 @@ python scripts/run_benchmark.py
 
 ---
 
+## ⚡ Spark Execution and Numerical Analytics
+
+DataStack includes dedicated engineering modules exploring Apache Spark execution internals, distributed processing mechanics, and bounded local numerical vectorization:
+
+- **RDD Fundamentals vs. DataFrames (`src/datastack/spark_lab/rdd_analytics.py`):**
+  Compares low-level map-reduce primitives (`map`, `filter`, `flatMap`, `reduceByKey`, `distinct`, `take`, bounded `collect`) against the high-level Catalyst DataFrame API on Olist revenue aggregations. Proves exact mathematical equivalence ($380.00 across 5 items) and documents why unbounded `collect()` triggers driver OutOfMemory (OOM) errors.
+  *Documentation:* [docs/spark_fundamentals.md](docs/spark_fundamentals.md)
+
+- **Execution Architecture & Query Planning (`src/datastack/spark_lab/execution_analysis.py`):**
+  Empirically inspects Driver vs. Executor responsibilities, lazy evaluation, narrow vs. wide transformations, and Catalyst query optimization. Captures all 4 execution plan levels (Parsed, Analyzed, Optimized Logical, and Physical) and highlights shuffle `Exchange` boundaries.
+  *Documentation:* [docs/spark_fundamentals.md](docs/spark_fundamentals.md)
+
+- **Partitioning Strategies & Shuffles (`src/datastack/spark_lab/partition_benchmark.py`):**
+  Profiles 5 controlled partition configurations (`default`, `repartition(4)`, `repartition(8)`, `coalesce(2)`, and business key partitioning on `order_status`). Demonstrates why `coalesce` avoids network shuffle while `repartition` forces an `Exchange`, and evaluates local JVM scheduling overhead without inflated speedup claims.
+  *Documentation:* [docs/spark_fundamentals.md](docs/spark_fundamentals.md)
+
+- **NumPy Analytics & Vectorization (`src/datastack/analytics/numpy_metrics.py`):**
+  Vectorized item cost, statistical metrics (`mean`, `median`, `std`, percentiles p25-p99), and delivery delay indicators (`np.where`, boolean masking) on Olist numerical columns, with explicit IEEE 754 NaN handling.
+  *Documentation:* [docs/numpy_fundamentals.md](docs/numpy_fundamentals.md)
+
+- **Pandas & NumPy Interoperability (`src/datastack/analytics/pandas_numpy_comparison.py`):**
+  Evaluates two-way conversions, null semantics (`np.nan` vs. Pandas nullable `Int64`), and benchmarks a scalar Python loop against NumPy vectorization (demonstrating ~140x SIMD speedup on 50,000 elements). Re-iterates the architectural boundary of keeping NumPy processing strictly bounded to driver memory.
+  *Interview Guide:* [docs/interview_walkthrough.md](docs/interview_walkthrough.md)
+
+To run the experiments independently:
+```powershell
+python -m datastack.spark_lab.rdd_analytics
+python -m datastack.spark_lab.execution_analysis
+python -m datastack.spark_lab.partition_benchmark
+python -m datastack.analytics.pandas_numpy_comparison
+```
+
+---
+
 ## 🧪 Testing & Validation
 
 DataStack includes deterministic unit tests with synthetic fixtures covering critical edge cases:
