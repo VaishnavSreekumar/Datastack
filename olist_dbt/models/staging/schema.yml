@@ -1,0 +1,76 @@
+version: 2
+
+sources:
+  - name: olist
+    database: olist_dw
+    schema: public
+    tables:
+      - name: silver_orders_enriched
+        description: "Cleansed, reconciled silver order line-items from data lake."
+
+models:
+  - name: stg_orders_enriched
+    description: "Filtered and normalized order line items excluding cancelled orders."
+    columns:
+      - name: order_id
+        description: "Order unique identifier."
+        tests:
+          - not_null
+      - name: order_item_id
+        description: "Sequential item number within order."
+        tests:
+          - not_null
+      - name: customer_id
+        description: "Customer identifier."
+        tests:
+          - not_null
+      - name: order_status
+        description: "Lifecycle status of the order."
+        tests:
+          - accepted_values:
+              values: ['delivered', 'shipped', 'processing', 'invoiced', 'unavailable', 'approved', 'created']
+
+  - name: int_orders_enriched
+    description: "Enriched order items with calendar extracts and financial metrics."
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+      - name: order_item_id
+        tests:
+          - not_null
+      - name: total_item_value
+        tests:
+          - not_null
+
+  - name: agg_daily_revenue
+    description: "Daily aggregated revenue and order volumes by category."
+    columns:
+      - name: order_date
+        tests:
+          - not_null
+      - name: total_revenue
+        tests:
+          - not_null
+      - name: total_orders
+        tests:
+          - not_null
+
+  - name: agg_seller_performance
+    description: "Fulfillment and delivery latency metrics per seller."
+    columns:
+      - name: seller_id
+        tests:
+          - not_null
+          - unique
+
+  - name: dim_customers
+    description: "Customer lifetime spend, order count, and purchase span."
+    columns:
+      - name: customer_id
+        tests:
+          - not_null
+          - unique
+      - name: total_revenue
+        tests:
+          - not_null

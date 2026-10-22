@@ -1,0 +1,21 @@
+olist_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | int }}"
+      user: "{{ env_var('POSTGRES_USER', 'olist') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'olist_secure_dev_password') }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'olist_dw') }}"
+      schema: "{{ env_var('POSTGRES_SCHEMA_DEV', 'dev') }}"
+      threads: 4
+    prod:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | int }}"
+      user: "{{ env_var('POSTGRES_USER', 'olist') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'olist_secure_dev_password') }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'olist_dw') }}"
+      schema: "{{ env_var('POSTGRES_SCHEMA_PROD', 'public') }}"
+      threads: 4
