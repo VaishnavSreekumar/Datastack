@@ -1,0 +1,64 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+benchmark_run/
+
+# Virtual environments
+venv/
+venv-*/
+.venv/
+env/
+ENV/
+
+# Data Lake and raw datasets (large datasets must stay outside git)
+raw_data/
+data/
+data_lake/
+*.parquet
+*.zip
+*.tar.gz
+*.csv
+# Allow small synthetic test fixtures
+!tests/fixtures/*.csv
+!tests/fixtures/**/*.csv
+
+# dbt artifacts
+olist_dbt/target/
+olist_dbt/dbt_packages/
+olist_dbt/dbt_modules/
+olist_dbt/logs/
+target/
+dbt_packages/
+
+# Airflow runtime artifacts
+airflow/logs/
+airflow/airflow-webserver.pid
+airflow/airflow-scheduler.pid
+airflow/airflow.db
+airflow/airflow.cfg.bak
+*.pid
+
+# JDBC Drivers & Binaries
+drivers/*.jar
+*.jar
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
