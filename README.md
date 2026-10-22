@@ -200,6 +200,3 @@ DataStack includes deterministic unit tests with synthetic fixtures covering cri
 
 ---
 
-## 📜 License
-
-See the repository's [LICENSE](LICENSE) and third-party notices in [NOTICE.md](NOTICE.md) for applicable licensing terms. Dataset provided by the [Brazilian E-Commerce Public Dataset by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) on Kaggle.
