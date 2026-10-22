@@ -1,0 +1,4 @@
+review_id,order_id,review_score,review_comment_title,review_comment_message,review_creation_date,review_answer_timestamp
+rev_001,order_001,5,Great,Delivered very quickly,2017-10-11 00:00:00,2017-10-12 10:00:00
+rev_002,order_002,2,Late,Delivered after estimated date,2017-11-06 00:00:00,2017-11-07 14:00:00
+rev_003,order_003,4,,Good communication,2017-11-23 00:00:00,2017-11-24 09:00:00

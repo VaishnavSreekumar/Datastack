@@ -1,0 +1,4 @@
+product_id,product_category_name,product_name_lenght,product_description_lenght,product_photos_qty,product_weight_g,product_length_cm,product_height_cm,product_width_cm
+prod_001,telefonia,40,250,2,300,16,10,12
+prod_002,informatica_acessorios,50,400,3,500,20,15,15
+prod_003,beleza_saude,35,180,1,200,12,8,8
