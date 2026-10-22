@@ -1,4 +1,4 @@
-# DataStack —  Data Engineering Platform
+# DataStack — E-Commerce Data Engineering Platform
 
 [![CI Pipeline](https://img.shields.io/badge/CI-Automated%20Tests%20Passing-brightgreen.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
@@ -7,9 +7,9 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://www.postgresql.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A production-style end-to-end data engineering platform built on the **Brazilian E-Commerce Public Dataset by Olist** (100k+ real commercial orders).
+An end-to-end data engineering pipeline built with **PySpark**, **PostgreSQL**, **dbt**, and **Apache Airflow** using the Brazilian Olist e-commerce dataset (100k+ real commercial orders across 9 relational tables).
 
-DataStack takes raw, semi-structured relational e-commerce transactions across 9 tables, enforces deterministic data contracts, executes cross-domain entity resolution, persists curated analytical layers in a PostgreSQL data warehouse, transforms business metrics using **dbt**, and orchestrates workflows with **Apache Airflow**.
+DataStack enforces deterministic data contracts, executes cross-domain entity resolution, persists curated analytical layers in a PostgreSQL data warehouse, transforms business metrics using **dbt**, and orchestrates workflows with **Apache Airflow**.
 
 ---
 
@@ -51,7 +51,7 @@ flowchart TD
 
 ---
 
-## 🛠️ Tech Stack & Tooling
+## 🛠️ Technology Stack
 
 | Component | Technology | Version | Engineering Role |
 |---|---|---|---|
@@ -64,25 +64,13 @@ flowchart TD
 
 ---
 
-## 🔍 Key Engineering Improvements & Problem Solving
+## 🔍 Key Engineering Improvements
 
-DataStack substantially refactors and advances the original upstream baseline ([`abaqasif-aa/olist_data_pipeline_end`](https://github.com/abaqasif-aa/olist_data_pipeline_end)):
-
-### 1. Eliminated the Critical Cartesian Product / Revenue Multiplication Bug
-- **The Upstream Flaw:** In the original pipeline, `order_items` (1:N) and `order_payments` (1:M) were directly left-joined on `order_id`. For orders with multiple items and multiple payment methods (e.g., gift card + credit card), this performed an $N \times M$ Cartesian product, multiplying recorded item prices, shipping freight, and overall revenue.
-- **The DataStack Fix:** Disentangled the data grains. Aggregated payment totals to the order grain prior to joining with line items, preserving exact line item financial integrity and preventing revenue distortion.
-
-### 2. Explicit Schemas vs Fragile Runtime Inference
-- **The Upstream Flaw:** Upstream utilized `inferSchema=True` across all CSV reads, causing inconsistent typing across runs, silent failures on unexpected formatting, and extreme ingestion latency.
-- **The DataStack Fix:** Enforced deterministic `StructType` schemas for all 9 Olist datasets, with automatic input validation and informative error messages.
-
-### 3. Logistical Delivery SLA Metric Correctness
-- **The Upstream Flaw:** Upstream dbt singular tests erroneously marked all negative `delivery_delay_days` as critical failures (`delivery_delay_days < 0`). In reality, early deliveries legitimately produce negative delay days.
-- **The DataStack Fix:** Corrected delay calculations and test logic to validate against realistic logistics tolerances (`[-30, 365]` days), distinguishing early deliveries (`is_late = 0`) from delayed shipments (`is_late = 1`).
-
-### 4. Cross-Platform Portability & Zero Hardcoded Secrets
-- Upstream hardcoded machine paths (`/mnt/d/Practise Projects/...`, `C:/hadoop`), personal email addresses, and static credentials.
-- DataStack introduces dynamic path resolution, environment variable management via `.env`, Docker Compose with isolated port bindings (5434), and automated native fallback execution.
+- **Revenue Correctness & Financial Reconciliation:** Fixed join-cardinality issues that could multiply order revenue when combining one-to-many child datasets (`order_items` and `order_payments`). Payments are pre-aggregated to the order grain, preserving exact line item price, freight, and order totals.
+- **Explicit Schema Enforcement:** Replaced fragile runtime schema inference with strictly typed schemas for all 9 source datasets to prevent type drift and handle malformed records deterministically.
+- **Delivery-Delay Validation:** Implemented robust SLA logic that distinguishes valid early deliveries (negative delay days) from true shipping delays (positive delay days), backed by singular dbt data-quality tests.
+- **Incremental Modeling with Maturity Windows:** Intermediate dbt transformations use a 45-day lookback window with `delete+insert` and composite keys (`order_id`, `order_item_id`) to ingest late-arriving order status updates without full reprocessing.
+- **Cross-Platform Portability & Security:** Fully automated local execution supporting Windows, Linux, and Docker Compose with isolated port bindings and zero committed secrets.
 
 ---
 
@@ -143,7 +131,7 @@ Datastack/
 ├── .gitignore                    # Comprehensive secrets & lake protection
 ├── docker-compose.yml            # Containerized PostgreSQL service
 ├── LICENSE                       # MIT License
-├── NOTICE.md                     # Upstream attribution & license notices
+├── NOTICE.md                     # Third-party notices & dataset attribution
 ├── pyproject.toml                # Package configuration
 └── requirements.txt              # Production dependency specifications
 ```
@@ -203,7 +191,7 @@ python scripts/run_benchmark.py
 
 ---
 
-## 🧪 Testing & Verification
+## 🧪 Testing & Validation
 
 DataStack includes deterministic unit tests with synthetic fixtures covering critical edge cases:
 - **Join Cardinality:** Proves that orders with multiple items and multiple payments generate exactly 1 row per order item and maintain reconciled revenue totals.
@@ -211,3 +199,7 @@ DataStack includes deterministic unit tests with synthetic fixtures covering cri
 - **Idempotency:** Validates that rerunning ingestion and transformation yields stable row counts and identical checksums.
 
 ---
+
+## 📜 License
+
+See the repository's [LICENSE](LICENSE) and third-party notices in [NOTICE.md](NOTICE.md) for applicable licensing terms. Dataset provided by the [Brazilian E-Commerce Public Dataset by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) on Kaggle.
