@@ -51,10 +51,16 @@ from pyspark.sql import functions as F
 
 def configure_spark_env() -> None:
     """Ensure reliable Spark execution across platforms."""
-    conda_prefix = sys.prefix
-    java_lib = os.path.join(conda_prefix, "Library")
-    if os.path.exists(java_lib) and "JAVA_HOME" not in os.environ:
-        os.environ["JAVA_HOME"] = java_lib
+    if "JAVA_HOME" not in os.environ:
+        candidates = [
+            os.path.join(sys.prefix, "Library"),
+            r"C:\Users\vaish\miniconda3\envs\datastack-env\Library",
+        ]
+        for cand in candidates:
+            if os.path.exists(cand) and os.path.exists(os.path.join(cand, "bin", "java.exe")):
+                os.environ["JAVA_HOME"] = cand
+                os.environ["PATH"] = os.path.join(cand, "bin") + os.pathsep + os.environ.get("PATH", "")
+                break
 
     os.environ["SPARK_LOCAL_IP"] = "127.0.0.1"
     os.environ["SPARK_LOCAL_HOSTNAME"] = "localhost"

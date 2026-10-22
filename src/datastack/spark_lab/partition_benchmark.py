@@ -48,10 +48,16 @@ from pyspark.sql import functions as F
 
 def configure_spark_env() -> None:
     """Ensure reliable environment configuration across platforms."""
-    conda_prefix = sys.prefix
-    java_lib = os.path.join(conda_prefix, "Library")
-    if os.path.exists(java_lib) and "JAVA_HOME" not in os.environ:
-        os.environ["JAVA_HOME"] = java_lib
+    if "JAVA_HOME" not in os.environ:
+        candidates = [
+            os.path.join(sys.prefix, "Library"),
+            r"C:\Users\vaish\miniconda3\envs\datastack-env\Library",
+        ]
+        for cand in candidates:
+            if os.path.exists(cand) and os.path.exists(os.path.join(cand, "bin", "java.exe")):
+                os.environ["JAVA_HOME"] = cand
+                os.environ["PATH"] = os.path.join(cand, "bin") + os.pathsep + os.environ.get("PATH", "")
+                break
 
     os.environ["SPARK_LOCAL_IP"] = "127.0.0.1"
     os.environ["SPARK_LOCAL_HOSTNAME"] = "localhost"
@@ -113,11 +119,11 @@ class PartitionBenchmark:
             "order_id", "customer_id", "order_status", "price", "seller_id"
         )
 
-        # Scale by cross joining with a range DataFrame (efficient flat logical plan)
-        multipliers = self.spark.range(0, scale_factor).select(
+        # Scale by cross joining with a range DataFrame and establishing a 4-partition baseline
+        multipliers = self.spark.range(0, scale_factor, numPartitions=4).select(
             F.col("id").alias("replica_id")
         )
-        scaled = joined_df.crossJoin(multipliers).drop("replica_id")
+        scaled = joined_df.crossJoin(multipliers).drop("replica_id").repartition(4)
         return scaled
 
     def execute_timed_workload(
@@ -200,48 +206,53 @@ class PartitionBenchmark:
     def run_full_benchmark(
         self, orders_csv: str, items_csv: str, scale_factor: int = 200
     ) -> List[PartitionBenchmarkMetric]:
-        """Execute comprehensive partition benchmark comparing all 5 configurations."""
+        """Execute comprehensive partition benchmark comparing all 5 configurations.
+        
+        Fairness Guarantee:
+        - Every strategy derives directly from the exact same base_df.
+        - Every strategy executes the identical aggregation workload with warm-up.
+        - Coalesce(2) and repartition(2) are directly compared on the same 4-partition dataset.
+        """
         base_df = self.generate_scaled_workload(orders_csv, items_csv, scale_factor=scale_factor)
 
         metrics: List[PartitionBenchmarkMetric] = []
 
-        # 1. Default partition configuration
+        # 1. Baseline 4 partitions (no extra transformation added)
         metrics.append(
             self.benchmark_strategy(
-                name="default",
+                name="baseline_4_parts",
                 df=base_df,
-                notes="Inherited default partitions from input reader without explicit repartitioning.",
+                notes="Inherited 4 partitions from input generation without extra shuffle.",
             )
         )
 
-        # 2. Explicit repartition(4) - Wide transformation
-        rep_4 = base_df.repartition(4)
+        # 2. Explicit coalesce(2) - Narrow transformation (No Shuffle Exchange)
+        coa_2 = base_df.coalesce(2)
         metrics.append(
             self.benchmark_strategy(
-                name="repartition_4",
-                df=rep_4,
-                notes="Balanced across 4 partitions via full round-robin shuffle exchange.",
+                name="coalesce_2",
+                df=coa_2,
+                notes="Reduced partition count from 4 down to 2 without network shuffle exchange.",
             )
         )
 
-        # 3. Explicit repartition(8) - Over-partitioning
+        # 3. Explicit repartition(2) - Wide transformation (With Shuffle Exchange)
+        rep_2 = base_df.repartition(2)
+        metrics.append(
+            self.benchmark_strategy(
+                name="repartition_2",
+                df=rep_2,
+                notes="Reduced partition count from 4 down to 2 via full round-robin shuffle exchange.",
+            )
+        )
+
+        # 4. Explicit repartition(8) - Over-partitioning
         rep_8 = base_df.repartition(8)
         metrics.append(
             self.benchmark_strategy(
                 name="repartition_8",
                 df=rep_8,
                 notes="Over-partitioned into 8 chunks; incurs additional task scheduling overhead on local 2-core runner.",
-            )
-        )
-
-        # 4. Explicit coalesce(2) - Narrow transformation
-        # Note: calling coalesce on a 4-partition dataset to reduce down to 2
-        coa_2 = rep_4.coalesce(2)
-        metrics.append(
-            self.benchmark_strategy(
-                name="coalesce_2",
-                df=coa_2,
-                notes="Reduced partition count from 4 down to 2 without network shuffle exchange.",
             )
         )
 
@@ -278,7 +289,7 @@ if __name__ == "__main__":
 
     results = run_partition_experiment()
 
-    header = f"{'Strategy':<20} | {'Parts':<6} | {'Rows':<7} | {'Avg (ms)':<9} | {'Min (ms)':<9} | {'Shuffle':<7} | {'Correctness'}"
+    header = f"{'Strategy':<22} | {'Parts':<6} | {'Rows':<7} | {'Avg (ms)':<9} | {'Min (ms)':<9} | {'Shuffle':<7} | {'Correctness'}"
     print(header)
     print("-" * len(header))
 
@@ -291,14 +302,17 @@ if __name__ == "__main__":
             and r.item_count_computed == baseline_cnt
         )
         print(
-            f"{r.strategy_name:<20} | {r.partition_count:<6} | {r.input_row_count:<7} | "
+            f"{r.strategy_name:<22} | {r.partition_count:<6} | {r.input_row_count:<7} | "
             f"{r.avg_runtime_ms:<9.2f} | {r.min_runtime_ms:<9.2f} | {str(r.has_shuffle_exchange):<7} | "
             f"{'VALID' if is_correct else 'INVALID'}"
         )
 
-    print("\nBenchmark Observations & Limitations:")
+    print("\nBenchmark Observations & Architectural Explanations:")
     print("1. Data Correctness: All 5 partitioning strategies returned identical mathematical revenues and counts.")
-    print("2. Repartition vs Coalesce: repartition(4) forces an Exchange operator in the plan, while coalesce(2) merges partitions.")
-    print("3. Local Runner Constraints: On a local 2-core JVM runner, increasing partitions to 8 does NOT yield linear speedups;")
-    print("   task scheduling overhead and thread context switching dominate on small bounded data volumes.")
+    print("2. Repartition vs Coalesce: Both reduce 4 partitions to 2; coalesce(2) merges partitions locally without")
+    print("   an Exchange operator, whereas repartition(2) forces a full shuffle write and read stage.")
+    print("3. Business Key Partitioning: repartition(4, col('order_status')) applies hash partitioning on the business key.")
+    print("   In distributed clusters, collocating records by key eliminates downstream shuffle exchanges during grouping.")
+    print("4. Local Runner Context: On a local 2-core JVM runner, timing differences reflect thread scheduling and JIT warming;")
+    print("   benchmarks demonstrate physical plan operator mechanics rather than distributed network speedup guarantees.")
     print("=" * 80)

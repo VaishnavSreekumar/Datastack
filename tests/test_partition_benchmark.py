@@ -51,18 +51,19 @@ def test_partition_strategies_correctness(lab, fixtures_dir):
 
     strategy_names = [r.strategy_name for r in results]
     assert strategy_names == [
-        "default",
-        "repartition_4",
-        "repartition_8",
+        "baseline_4_parts",
         "coalesce_2",
+        "repartition_2",
+        "repartition_8",
         "partition_by_status",
     ]
 
     # Verify partition counts
     part_map = {r.strategy_name: r.partition_count for r in results}
-    assert part_map["repartition_4"] == 4
-    assert part_map["repartition_8"] == 8
+    assert part_map["baseline_4_parts"] == 4
     assert part_map["coalesce_2"] == 2
+    assert part_map["repartition_2"] == 2
+    assert part_map["repartition_8"] == 8
     assert part_map["partition_by_status"] == 4
 
     # Verify data correctness across all strategies

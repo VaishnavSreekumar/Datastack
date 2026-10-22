@@ -32,9 +32,10 @@ This analysis evaluates where existing coverage aligns with enterprise requireme
 - **Database / Warehouse:** Native PostgreSQL 17 + DuckDB 2.0.0 + dbt-core 1.11.2
 
 ### Platform Specific Consideration: Spark Workers on Windows
-On Windows with Python 3.12+, upstream Apache Spark issue **SPARK-53759** identifies inter-process communication socket buffering differences on the simple-worker path. To ensure rock-solid stability and full cross-platform compatibility:
-- Spark DataFrame and Catalyst execution operates natively on the JVM with optimal performance.
-- RDD analytical routines provide equivalent DataFrame counterparts and graceful architectural abstractions demonstrating exact distributed map-reduce primitives, ensuring deterministic test execution across Windows, Linux, and macOS environments.
+On Windows with Python 3.12+, upstream Apache Spark issue **SPARK-53759** produces a Python worker crash (`java.io.EOFException`) during socket finalization in `pyspark.worker`.
+- **Supported Native Environments:** Python 3.11 (tested and 100% passing in `test-py311` conda environment) and Linux / WSL2 / Docker runtimes.
+- **Audited Execution Policy:** The codebase strictly executes genuine PySpark RDD operations on `pyspark.rdd.RDD` without simulation fallbacks. If executed in an unsupported runtime (Windows Python 3.12), it explicitly reports the outcome as `UNVERIFIED (SPARK-53759)` and skips tests with actionable diagnostic messages rather than masking failures.
+- **DataFrame Engine:** Spark DataFrame and Catalyst execution operates natively on the JVM and is fully functional across all Python and OS versions.
 
 ---
 

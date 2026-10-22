@@ -204,7 +204,7 @@ DataStack includes dedicated engineering modules exploring Apache Spark executio
   *Documentation:* [docs/spark_fundamentals.md](docs/spark_fundamentals.md)
 
 - **Partitioning Strategies & Shuffles (`src/datastack/spark_lab/partition_benchmark.py`):**
-  Profiles 5 controlled partition configurations (`default`, `repartition(4)`, `repartition(8)`, `coalesce(2)`, and business key partitioning on `order_status`). Demonstrates why `coalesce` avoids network shuffle while `repartition` forces an `Exchange`, and evaluates local JVM scheduling overhead without inflated speedup claims.
+  Profiles 5 controlled partition configurations (`baseline_4_parts`, `coalesce(2)`, `repartition(2)`, `repartition(8)`, and business-key hash partitioning on `order_status`). Demonstrates why `coalesce` avoids network shuffle while `repartition` forces an `Exchange`, and evaluates local JVM scheduling overhead without inflated speedup claims.
   *Documentation:* [docs/spark_fundamentals.md](docs/spark_fundamentals.md)
 
 - **NumPy Analytics & Vectorization (`src/datastack/analytics/numpy_metrics.py`):**
@@ -212,7 +212,7 @@ DataStack includes dedicated engineering modules exploring Apache Spark executio
   *Documentation:* [docs/numpy_fundamentals.md](docs/numpy_fundamentals.md)
 
 - **Pandas & NumPy Interoperability (`src/datastack/analytics/pandas_numpy_comparison.py`):**
-  Evaluates two-way conversions, null semantics (`np.nan` vs. Pandas nullable `Int64`), and benchmarks a scalar Python loop against NumPy vectorization (demonstrating ~140x SIMD speedup on 50,000 elements). Re-iterates the architectural boundary of keeping NumPy processing strictly bounded to driver memory.
+  Evaluates two-way conversions, null semantics (`np.nan` vs. Pandas nullable `Int64`), and benchmarks a scalar Python loop against NumPy vectorization (demonstrating ~140x SIMD microbenchmark speedup on 50,000 in-memory elements with warm-up). Re-iterates the architectural boundary of keeping NumPy processing strictly bounded to driver memory.
   *Interview Guide:* [docs/interview_walkthrough.md](docs/interview_walkthrough.md)
 
 To run the experiments independently:

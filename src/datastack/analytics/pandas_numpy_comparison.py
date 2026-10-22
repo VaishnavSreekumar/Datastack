@@ -126,9 +126,16 @@ def calculate_total_cost_vectorized(prices: np.ndarray, freights: np.ndarray) ->
 
 
 def benchmark_loop_vs_vectorized(
-    dataset_size: int = 50_000, runs: int = 5
+    dataset_size: int = 50_000, runs: int = 5, warmup_runs: int = 2
 ) -> PerformanceComparisonResult:
-    """Benchmark plain Python loop vs NumPy vectorized execution over equivalent inputs."""
+    """Benchmark plain Python loop vs NumPy vectorized execution over equivalent inputs.
+    
+    Benchmarking Protocol:
+    1. Warm-up Phase: Executes untimed warm-up runs to prime CPU L1/L2 caches and interpreter paths.
+    2. Repeated Measurements: Collects multiple high-resolution timer samples (time.perf_counter).
+    3. Output Equivalence: Asserts mathematical equivalence with np.allclose on identical inputs.
+    4. Fair Framing: Framed as an in-memory local CPU microbenchmark, not an end-to-end pipeline guarantee.
+    """
     # Seed for determinism
     rng = np.random.default_rng(42)
 
@@ -143,7 +150,12 @@ def benchmark_loop_vs_vectorized(
     py_prices = list(np_prices)
     py_freights = list(np_freights)
 
-    # 1. Benchmark Python Loop
+    # 1. Warm-up runs (untimed)
+    for _ in range(warmup_runs):
+        _ = calculate_total_cost_loop(py_prices, py_freights)
+        _ = calculate_total_cost_vectorized(np_prices, np_freights)
+
+    # 2. Benchmark Python Loop
     loop_times = []
     loop_result: List[float] = []
     for _ in range(runs):
@@ -151,7 +163,7 @@ def benchmark_loop_vs_vectorized(
         loop_result = calculate_total_cost_loop(py_prices, py_freights)
         loop_times.append((time.perf_counter() - start) * 1000.0)
 
-    # 2. Benchmark NumPy Vectorized
+    # 3. Benchmark NumPy Vectorized
     vec_times = []
     vec_result: np.ndarray = np.array([])
     for _ in range(runs):
@@ -159,7 +171,7 @@ def benchmark_loop_vs_vectorized(
         vec_result = calculate_total_cost_vectorized(np_prices, np_freights)
         vec_times.append((time.perf_counter() - start) * 1000.0)
 
-    # 3. Verify numerical equivalence
+    # 4. Verify numerical equivalence
     results_match = bool(np.allclose(np.array(loop_result), vec_result, equal_nan=True))
 
     avg_loop = sum(loop_times) / len(loop_times)
@@ -176,7 +188,7 @@ def benchmark_loop_vs_vectorized(
         vectorized_min_ms=round(min_vec, 3),
         speedup_ratio=round(speedup, 2),
         results_match=results_match,
-        notes="NumPy leverages compiled C SIMD vectorization to bypass Python interpreter loop overhead.",
+        notes="Local CPU microbenchmark on in-memory float64 arrays. Demonstrates SIMD vectorization over interpreter loop overhead; not a general end-to-end pipeline speedup guarantee.",
     )
 
 

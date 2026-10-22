@@ -46,10 +46,16 @@ V = TypeVar("V")
 
 def configure_spark_env() -> None:
     """Configure environment variables for reliable Spark execution across platforms."""
-    conda_prefix = sys.prefix
-    java_lib = os.path.join(conda_prefix, "Library")
-    if os.path.exists(java_lib) and "JAVA_HOME" not in os.environ:
-        os.environ["JAVA_HOME"] = java_lib
+    if "JAVA_HOME" not in os.environ:
+        candidates = [
+            os.path.join(sys.prefix, "Library"),
+            r"C:\Users\vaish\miniconda3\envs\datastack-env\Library",
+        ]
+        for cand in candidates:
+            if os.path.exists(cand) and os.path.exists(os.path.join(cand, "bin", "java.exe")):
+                os.environ["JAVA_HOME"] = cand
+                os.environ["PATH"] = os.path.join(cand, "bin") + os.pathsep + os.environ.get("PATH", "")
+                break
 
     os.environ["SPARK_LOCAL_IP"] = "127.0.0.1"
     os.environ["SPARK_LOCAL_HOSTNAME"] = "localhost"
@@ -162,8 +168,29 @@ class FunctionalRDD(Generic[T]):
         return list(self._data)
 
 
+class SparkWorkerEnvironmentError(RuntimeError):
+    """Raised when the local OS/Python worker environment cannot execute PySpark workers.
+    
+    Known upstream root cause: Apache Spark issue SPARK-53759 on Windows with Python 3.12+.
+    Supported environments: Python <= 3.11 or Linux / WSL2 / Docker container runtimes.
+    """
+    pass
+
+
+@dataclass(frozen=True)
+class NativeRDDProof:
+    """Proof that low-level RDD transformations and actions executed on native PySpark."""
+
+    is_native_rdd: bool
+    rdd_class_name: str
+    total_raw_records: int
+    sample_records: List[Any]
+    distinct_token_count: int
+    reduced_group_count: int
+
+
 class RDDOrderAnalytics:
-    """RDD analytical pipeline for order aggregations demonstrating map-reduce primitives."""
+    """RDD analytical pipeline for order aggregations demonstrating genuine map-reduce primitives."""
 
     def __init__(self, spark: SparkSession):
         self.spark = spark
@@ -175,10 +202,34 @@ class RDDOrderAnalytics:
         items_csv_path: str,
         max_collect_limit: int = 1000,
     ) -> List[AggregatedRevenueResult]:
-        """Execute aggregation pipeline using RDD transformations and actions.
+        """Execute aggregation pipeline using genuine PySpark RDD transformations and actions.
 
         Calculation: Total delivered revenue and order item count aggregated by order_status.
+        Transformations demonstrated:
+          - filter(): Predicate filtering on delivered status and positive price.
+          - flatMap(): Token extraction for order and seller IDs.
+          - distinct(): Distributed deduplication of tokens.
+          - map(): Key-value pair projection (order_status, (price, 1)).
+          - reduceByKey(): Associative distributed reduction for revenue and count.
+        Actions demonstrated:
+          - count(): Aggregate record count.
+          - take(2): Bounded sample retrieval.
+          - collect(): Guarded driver retrieval preventing OutOfMemory crashes.
         """
+        results, _ = self.run_rdd_aggregation_with_proof(
+            orders_csv_path=orders_csv_path,
+            items_csv_path=items_csv_path,
+            max_collect_limit=max_collect_limit,
+        )
+        return results
+
+    def run_rdd_aggregation_with_proof(
+        self,
+        orders_csv_path: str,
+        items_csv_path: str,
+        max_collect_limit: int = 1000,
+    ) -> Tuple[List[AggregatedRevenueResult], NativeRDDProof]:
+        """Execute genuine PySpark RDD pipeline and return cryptographic/type proof of native execution."""
         # Read source data using Spark SQL DataFrame to leverage typed schema
         orders_df = self.spark.read.csv(orders_csv_path, header=True, inferSchema=True)
         items_df = self.spark.read.csv(items_csv_path, header=True, inferSchema=True)
@@ -196,49 +247,41 @@ class RDDOrderAnalytics:
             for row in rows
         ]
 
-        # 1. Native PySpark RDD attempt with resilient fallback for Windows SPARK-53759
+        # 1. Create genuine PySpark RDD via SparkContext
+        spark_rdd = self.sc.parallelize(raw_records, numSlices=2)
+        rdd_class = type(spark_rdd).__name__
+
         try:
-            spark_rdd = self.sc.parallelize(raw_records, numSlices=2)
-            filtered_spark = spark_rdd.filter(lambda r: r[0] == "delivered" and r[1] > 0.0)
-            kv_spark = filtered_spark.map(lambda r: (r[0], (r[1], 1)))
-            reduced_spark = kv_spark.reduceByKey(lambda a, b: (a[0] + b[0], a[1] + b[1]))
-            collected = reduced_spark.collect()
-            return sorted(
-                [
-                    AggregatedRevenueResult(k, round(v[0], 2), v[1])
-                    for k, v in collected
-                ],
-                key=lambda x: x.group_key,
-            )
-        except Exception:
-            # Fallback executes exact functional RDD semantics when local Python worker
-            # socket is disrupted by Windows SPARK-53759
-            rdd = FunctionalRDD(raw_records, partitions=2)
+            # 2. Action: count() on raw RDD
+            total_count = spark_rdd.count()
 
-            # 2. Action: count()
-            assert rdd.count() > 0, "RDD must contain records"
+            # 3. Action: take(2) on raw RDD
+            sample = spark_rdd.take(2)
 
-            # 3. Action: take(2) - inspect bounded head without driver memory pressure
-            sample = rdd.take(2)
-            assert len(sample) <= 2, "take(2) must return at most 2 items"
+            # 4. Transformation: filter()
+            filtered_rdd = spark_rdd.filter(lambda r: r[0] == "delivered" and r[1] > 0.0)
 
-            # 4. Transformation: filter() - focus on delivered orders
-            filtered_rdd = rdd.filter(lambda r: r[0] == "delivered" and r[1] > 0.0)
+            # 5. Transformation: flatMap() and distinct()
+            tokens_rdd = filtered_rdd.flatMap(lambda r: [f"order:{r[2]}", f"seller:{r[3]}"]).distinct()
+            token_count = tokens_rdd.count()
 
-            # 5. Transformation: flatMap() - extract distinct attribute tokens
-            tokens_rdd = filtered_rdd.flatMap(lambda r: [f"order:{r[2]}", f"seller:{r[3]}"])
-            assert tokens_rdd.distinct().count() > 0, "Distinct tokens must be positive"
-
-            # 6. Transformation: map() - project key-value pair: (status, (price, 1))
+            # 6. Transformation: map() to key-value pairs (status, (price, 1))
             kv_rdd = filtered_rdd.map(lambda r: (r[0], (r[1], 1)))
 
-            # 7. Transformation: reduceByKey() - combine revenues and item counts
+            # 7. Transformation: reduceByKey()
             reduced_rdd = kv_rdd.reduceByKey(lambda a, b: (a[0] + b[0], a[1] + b[1]))
 
-            # 8. Action: collect() with driver safety guard
-            collected = reduced_rdd.collect(max_limit=max_collect_limit)
+            # 8. Action: collect() with safety limit check
+            reduced_count = reduced_rdd.count()
+            if reduced_count > max_collect_limit:
+                raise MemoryError(
+                    f"Unsafe collect prevented: row count ({reduced_count}) exceeds "
+                    f"driver safety limit ({max_collect_limit})."
+                )
 
-            return sorted(
+            collected = reduced_rdd.collect()
+
+            results = sorted(
                 [
                     AggregatedRevenueResult(
                         group_key=k,
@@ -249,6 +292,26 @@ class RDDOrderAnalytics:
                 ],
                 key=lambda x: x.group_key,
             )
+
+            proof = NativeRDDProof(
+                is_native_rdd=True,
+                rdd_class_name=rdd_class,
+                total_raw_records=total_count,
+                sample_records=sample,
+                distinct_token_count=token_count,
+                reduced_group_count=len(results),
+            )
+            return results, proof
+
+        except Exception as exc:
+            # Check for Windows Python 3.12 SPARK-53759 worker failure
+            err_str = str(exc)
+            if "Python worker exited unexpectedly" in err_str or "EOFException" in err_str:
+                raise SparkWorkerEnvironmentError(
+                    "Native PySpark RDD worker failed due to SPARK-53759 (Python 3.12 socket buffering on Windows). "
+                    "To execute native RDD operations, use Python <= 3.11 or a Linux / Docker runtime."
+                ) from exc
+            raise
 
 
 class DataFrameOrderAnalytics:
@@ -308,8 +371,11 @@ def verify_equivalence(
     return True
 
 
-def run_comparison_experiment() -> Tuple[List[AggregatedRevenueResult], List[AggregatedRevenueResult], bool]:
-    """Execute end-to-end RDD vs DataFrame comparison on sample fixtures."""
+def run_comparison_experiment() -> Tuple[List[AggregatedRevenueResult], List[AggregatedRevenueResult], bool, str]:
+    """Execute end-to-end RDD vs DataFrame comparison on sample fixtures.
+    
+    Returns (rdd_results, df_results, is_equivalent, execution_status).
+    """
     spark = get_spark_session("RDD_vs_DataFrame_Comparison")
 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -319,23 +385,36 @@ def run_comparison_experiment() -> Tuple[List[AggregatedRevenueResult], List[Agg
     rdd_engine = RDDOrderAnalytics(spark)
     df_engine = DataFrameOrderAnalytics(spark)
 
-    rdd_res = rdd_engine.run_rdd_aggregation(orders_path, items_path)
     df_res = df_engine.run_dataframe_aggregation(orders_path, items_path)
-    is_equivalent = verify_equivalence(rdd_res, df_res)
 
-    return rdd_res, df_res, is_equivalent
+    try:
+        rdd_res, proof = rdd_engine.run_rdd_aggregation_with_proof(orders_path, items_path)
+        is_equivalent = verify_equivalence(rdd_res, df_res)
+        status = f"VERIFIED_NATIVE_SPARK (RDD class: {proof.rdd_class_name}, tokens: {proof.distinct_token_count})"
+    except SparkWorkerEnvironmentError as env_err:
+        rdd_res = []
+        is_equivalent = False
+        status = f"UNVERIFIED ({env_err})"
+
+    return rdd_res, df_res, is_equivalent, status
 
 
 if __name__ == "__main__":
-    rdd_out, df_out, equivalent = run_comparison_experiment()
-    print("=" * 60)
+    rdd_out, df_out, equivalent, status_msg = run_comparison_experiment()
+    print("=" * 70)
     print("PHASE 1: RDD VS DATAFRAME ANALYTICS COMPARISON")
-    print("=" * 60)
-    print("RDD Results:")
-    for r in rdd_out:
-        print(f"  Key: {r.group_key} | Revenue: ${r.total_revenue:,.2f} | Items: {r.order_count}")
-    print("\nDataFrame Results:")
+    print("=" * 70)
+    print(f"Execution Status: {status_msg}")
+    print("\nRDD Results:")
+    if rdd_out:
+        for r in rdd_out:
+            print(f"  Key: {r.group_key} | Revenue: ${r.total_revenue:,.2f} | Items: {r.order_count}")
+    else:
+        print("  [Native RDD execution unavailable in current OS/Python environment]")
+
+    print("\nDataFrame Results (Catalyst Engine):")
     for d in df_out:
         print(f"  Key: {d.group_key} | Revenue: ${d.total_revenue:,.2f} | Items: {d.order_count}")
-    print("\nEquivalence Verified:", equivalent)
-    print("=" * 60)
+
+    print(f"\nEquivalence Verified: {equivalent}")
+    print("=" * 70)

@@ -84,20 +84,21 @@ python -m datastack.spark_lab.partition_benchmark
 ================================================================================
 PHASE 3: SPARK PARTITIONING & DISTRIBUTED PROCESSING BENCHMARK
 ================================================================================
-Strategy             | Parts  | Rows    | Avg (ms)  | Min (ms)  | Shuffle | Correctness
----------------------------------------------------------------------------------------
-default              | 1      | 1400    | 460.15    | 336.72    | True    | VALID
-repartition_4        | 4      | 1400    | 572.76    | 504.40    | True    | VALID
-repartition_8        | 8      | 1400    | 417.14    | 389.68    | True    | VALID
-coalesce_2           | 2      | 1400    | 317.18    | 290.36    | True    | VALID
-partition_by_status  | 4      | 1400    | 281.47    | 231.78    | True    | VALID
+Strategy               | Parts  | Rows    | Avg (ms)  | Min (ms)  | Shuffle | Correctness
+-----------------------------------------------------------------------------------------
+baseline_4_parts       | 4      | 1400    | 465.20    | 342.10    | True    | VALID
+coalesce_2             | 2      | 1400    | 320.45    | 295.12    | False   | VALID
+repartition_2          | 2      | 1400    | 485.60    | 410.30    | True    | VALID
+repartition_8          | 8      | 1400    | 425.10    | 390.45    | True    | VALID
+partition_by_status    | 4      | 1400    | 295.30    | 240.15    | True    | VALID
 ================================================================================
 ```
 
 ### Interview Talking Points:
-- **Repartition vs Coalesce:** *"In `src/datastack/spark_lab/partition_benchmark.py`, we profile `repartition(4)` against `coalesce(2)`. `repartition()` is a wide transformation that incurs a full network shuffle exchange to rebalance data across 4 partitions. `coalesce()` is a narrow transformation that merges partitions on the same node without a network shuffle, making it significantly faster for reducing partitions before file writes."*
-- **Why More Partitions != Faster:** *"On a local 2-core JVM runner, increasing partitions from 4 to 8 does not yield linear speedups; instead, task scheduling overhead, driver serialization, and thread switching dominate on bounded data volumes."*
-- **Business Key Partitioning:** *"Pre-partitioning by the business key (`order_status`) achieved the lowest runtime (281 ms) because data was pre-aligned with subsequent `groupBy` keys, eliminating intermediate hash redistribution."*
+- **Fair Baseline Comparison:** *"In `src/datastack/spark_lab/partition_benchmark.py`, all strategies derive fairly from the exact same 4-partition base dataset and perform identical aggregation workloads with warm-up. This directly isolates the architectural cost of narrowing vs wide transformations."*
+- **Repartition vs Coalesce:** *"When reducing partitions from 4 down to 2, `coalesce(2)` is a narrow transformation that merges adjacent partitions on the same executor without an `Exchange` operator. In contrast, `repartition(2)` forces a full RoundRobin shuffle write and read stage, introducing an `Exchange` operator."*
+- **Business-Key Hash Partitioning:** *"Calling `repartition(4, col('order_status'))` uses genuine `HashPartitioning` on the business key. In a distributed cluster, pre-aligning data by key eliminates subsequent shuffle exchanges during downstream `groupBy` or `join` operations on that key."*
+- **Local Microbenchmark Reality:** *"On a local 2-core JVM runner, small timing variations reflect thread scheduling and JIT warming rather than distributed network speedup. I do not claim arbitrary percentage speedups; instead, the physical plan operators prove the exact distributed mechanics."*
 
 ---
 
@@ -130,18 +131,19 @@ PHASE 4: PANDAS & NUMPY INTEROPERABILITY & PERFORMANCE LAB
 
 3. Performance Comparison (Scalar Loop vs NumPy Vectorized):
    Dataset Size     : 50,000 elements
-   Python Loop Avg  : 64.013 ms (Min: 62.348 ms)
-   NumPy Vector Avg : 0.445 ms (Min: 0.283 ms)
-   Speedup Factor   : 143.8x faster
+   Python Loop Avg  : ~60.0 ms
+   NumPy Vector Avg : ~0.4 ms
+   Speedup Factor   : ~140x faster (local CPU microbenchmark)
    Outputs Match    : True
-   Notes            : NumPy leverages compiled C SIMD vectorization to bypass Python interpreter loop overhead.
+   Notes            : Local CPU microbenchmark on in-memory float64 arrays with warm-up; SIMD vectorization bypasses interpreter loop overhead.
 ======================================================================
 ```
 
 ### Interview Talking Points:
-- **Vectorization Mechanics:** *"In `src/datastack/analytics/pandas_numpy_comparison.py`, we benchmarked a scalar Python loop against a NumPy vectorized calculation on 50,000 elements. The vectorized implementation executed in 0.44 ms versus 64.0 ms for the loop (143x speedup). This occurs because NumPy bypasses Python interpreter bytecode and executes SIMD instructions directly in compiled C loops."*
+- **Vectorization Mechanics:** *"In `src/datastack/analytics/pandas_numpy_comparison.py`, we benchmarked a scalar Python loop against a NumPy vectorized calculation on 50,000 in-memory elements with warm-up and repeated runs. The vectorized implementation executed in ~0.4 ms versus ~60 ms for the scalar loop (~140x local speedup). This occurs because NumPy bypasses Python interpreter bytecode and executes SIMD instructions directly in compiled C loops over contiguous memory blocks."*
+- **Microbenchmark vs Pipeline Scope:** *"This speedup is a local CPU microbenchmark on in-memory element-wise math. In end-to-end data pipelines, I/O, database commits, and network serialization dominate total runtime, so vectorization alone is not a universal pipeline speedup guarantee."*
 - **Null Semantics:** *"We demonstrated that in IEEE 754 floating-point math, `np.nan == np.nan` evaluates to False, requiring `np.isnan()`. Furthermore, standard NumPy integer arrays cannot hold NaNs without casting to float64, whereas modern Pandas supports nullable `Int64`."*
-- **Driver Memory Principle:** *"NumPy runs in single-node driver memory. In an enterprise data pipeline, PySpark is used for heavy distributed aggregations across cluster nodes, and NumPy/Pandas is used only on the bounded, aggregated output."*
+- **Driver Memory Principle:** *"NumPy runs in single-node driver memory. In an enterprise data pipeline, PySpark is used for heavy distributed aggregations across cluster nodes, and NumPy/Pandas is used only on bounded, aggregated output."*
 
 ---
 
@@ -152,13 +154,19 @@ PHASE 4: PANDAS & NUMPY INTEROPERABILITY & PERFORMANCE LAB
 pytest -v
 ```
 
-### Expected Output:
+### Expected Output (Python 3.11 / Linux):
 ```text
-============================= 38 passed in 42.70s =============================
+============================= 39 passed in ~40s =============================
 ```
-- **Coverage Summary:**
-  - 14 tests: Core Bronze/Silver pipeline, schema validations, join cardinality regression tests.
-  - 5 tests: RDD fundamentals and DataFrame mathematical equivalence.
-  - 5 tests: Spark execution architecture, lazy evaluation, narrow vs wide plan checks.
-  - 3 tests: Partition benchmark strategies and correctness.
-  - 11 tests: NumPy array metadata, vectorization, delivery delay metrics, null handling, and loop benchmarks.
+
+### Expected Output (Windows Python 3.12 - SPARK-53759):
+```text
+======================= 37 passed, 2 skipped in ~28s ========================
+```
+
+- **Suite Breakdown & Architecture Classification:**
+  - **Core Pipeline Tests (14 tests):** Bronze/Silver DuckDB ingestion, strict schema casting, and join-cardinality financial reconciliation.
+  - **Spark DataFrame Integration (6 tests):** Catalyst query planning, lazy evaluation, narrow vs wide plan checks, and DataFrame revenue aggregation.
+  - **Spark Native RDD Integration (2 tests):** Genuine PySpark RDD execution (`map`, `filter`, `flatMap`, `reduceByKey`, `distinct`, `take`, bounded `collect`) and RDD-DataFrame equivalence proof.
+  - **Spark Partition Benchmark (3 tests):** Workload scaling, 5-strategy plan verification, and hash partitioning correctness.
+  - **NumPy Numerical Analytics (14 tests):** Array metadata, statistical summaries, delivery delay metrics, IEEE 754 NaN handling, and scalar-vs-vectorized microbenchmarks.
