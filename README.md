@@ -211,9 +211,3 @@ DataStack includes deterministic unit tests with synthetic fixtures covering cri
 - **Idempotency:** Validates that rerunning ingestion and transformation yields stable row counts and identical checksums.
 
 ---
-
-## 📜 Attribution & License
-
-- Original project: [olist_data_pipeline_end](https://github.com/abaqasif-aa/olist_data_pipeline_end) by Abaq Asif.
-- Dataset: [Brazilian E-Commerce Public Dataset by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) on Kaggle.
-- Licensed under the [MIT License](LICENSE). Detailed third-party notices are documented in [NOTICE.md](NOTICE.md).
